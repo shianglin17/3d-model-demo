@@ -24,42 +24,53 @@
         <span id="status" class="text-slate-400 text-sm"></span>
       </section>
 
-      <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <h2 class="text-slate-300 text-base">模型列表</h2>
-            <span class="text-slate-400 text-sm">共 <b id="count">0</b> 筆</span>
-          </div>
-          <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+      <!-- 模型列表（最上方） -->
+      <section class="mt-4">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-slate-300 text-base">模型列表</h2>
+          <span class="text-slate-400 text-sm">共 <b id="count">0</b> 筆</span>
+        </div>
+        <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+      </section>
 
-          <div class="mt-4 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-            <h2 class="text-slate-300 text-base mb-2">Mongo 欄位概覽</h2>
-            <div class="overflow-x-auto">
-              <table class="min-w-full text-sm">
-                <thead>
-                  <tr class="text-slate-400">
-                    <th class="text-left font-medium py-2 pr-4">Field</th>
-                    <th class="text-left font-medium py-2 pr-4">Type</th>
-                    <th class="text-left font-medium py-2">Example</th>
-                  </tr>
-                </thead>
-                <tbody id="schema"></tbody>
-              </table>
-            </div>
+      <!-- Viewer（列表下方） -->
+      <section class="mt-6 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+        <div class="w-full max-w-5xl mx-auto">
+          <div class="w-full aspect-[4/3] rounded-lg overflow-hidden border border-slate-700">
+            <iframe
+              id="viewer"
+              class="w-full h-full"
+              allow="autoplay; fullscreen; accelerometer; gyroscope; magnetometer; xr-spatial-tracking"
+            ></iframe>
+          </div>
+        </div>
+      </section>
+
+      <!-- 欄位概覽與原始文件（Viewer 下方） -->
+      <section class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+          <h2 class="text-slate-300 text-base mb-2">欄位概覽（當前模型）</h2>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <thead>
+                <tr class="text-slate-400">
+                  <th class="text-left font-medium py-2 pr-4">Field</th>
+                  <th class="text-left font-medium py-2 pr-4">Type</th>
+                  <th class="text-left font-medium py-2">Example</th>
+                </tr>
+              </thead>
+              <tbody id="schema"></tbody>
+            </table>
           </div>
         </div>
         <div class="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-          <iframe
-            id="viewer"
-            width="800"
-            height="600"
-            allow="autoplay; fullscreen; accelerometer; gyroscope; magnetometer; xr-spatial-tracking"
-          ></iframe>
+          <h2 class="text-slate-300 text-base mb-2">Mongo 原始文件（當前模型）</h2>
+          <pre id="doc" class="text-xs text-slate-300 bg-slate-950/60 rounded-lg border border-slate-700 p-3 overflow-auto max-h-[50vh] whitespace-pre-wrap break-words"></pre>
         </div>
       </section>
     </main>
 
-    <script>
+<script>
       function setStatus(s){ document.getElementById('status').textContent = s; }
 
       async function importModel(){
@@ -69,6 +80,15 @@
         setStatus('import ' + uid + ' => ' + r.status);
         await list();
         await render(uid);
+        try {
+          const j = await (await fetch('/api/models/' + encodeURIComponent(uid))).json();
+          if (j.ok) showDoc(j.model);
+        } catch {}
+      }
+
+      function showDoc(doc){
+        const pre = document.getElementById('doc');
+        pre.textContent = JSON.stringify(doc, null, 2);
       }
 
       function getType(v){
@@ -92,9 +112,7 @@
         const d = await (await fetch('/api/models')).json();
         const grid = document.getElementById('grid');
         const count = document.getElementById('count');
-        const schemaBody = document.getElementById('schema');
         grid.innerHTML = '';
-        schemaBody.innerHTML = '';
         count.textContent = Array.isArray(d.models) ? d.models.length : 0;
         for (const m of d.models) {
           const card = document.createElement('article');
@@ -104,35 +122,27 @@
           const updatedAt = m.updatedAt ? new Date(m.updatedAt).toLocaleString() : '';
           card.innerHTML = `
             <h3 class="text-slate-200 text-sm font-semibold truncate">${title}</h3>
-            <p class="text-slate-400 text-xs truncate">UID: <a href="#" data-uid="${m.uid}" class="underline decoration-dotted">${m.uid}</a></p>
+            <p class="text-slate-400 text-xs truncate">UID: ${m.uid}</p>
             <p class="text-slate-500 text-xs truncate">Author: ${author}</p>
             <p class="text-slate-500 text-xs">Updated: ${updatedAt}</p>
           `;
-          card.querySelector('a').onclick = (e) => { e.preventDefault(); render(m.uid); };
+          card.style.cursor = 'pointer';
+          card.onclick = () => { render(m.uid); showDoc(m); buildSchema(m); };
           grid.appendChild(card);
         }
+      }
 
-        // schema overview (top-level fields)
-        const typeMap = new Map();
-        const exampleMap = new Map();
-        for (const m of d.models || []){
-          for (const k of Object.keys(m)){
-            const v = m[k];
-            const t = getType(v);
-            if (!typeMap.has(k)) typeMap.set(k, new Set());
-            typeMap.get(k).add(t);
-            if (!exampleMap.has(k) && v !== undefined) exampleMap.set(k, v);
-          }
-        }
-        const sortedKeys = Array.from(typeMap.keys()).sort();
-        for (const k of sortedKeys){
-          const types = Array.from(typeMap.get(k)).join(' | ');
-          const ex = stringifyExample(exampleMap.get(k));
+      function buildSchema(doc){
+        const schemaBody = document.getElementById('schema');
+        schemaBody.innerHTML = '';
+        const hidden = new Set(['__v']); // 不顯示與模型無關的版本欄位
+        for (const [k, v] of Object.entries(doc)){
+          if (hidden.has(k)) continue;
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td class="py-2 pr-4 align-top text-slate-200">${k}</td>
-            <td class="py-2 pr-4 align-top text-cyan-300">${types}</td>
-            <td class="py-2 align-top text-slate-400 whitespace-pre-wrap break-words">${ex}</td>
+            <td class="py-2 pr-4 align-top text-cyan-300">${getType(v)}</td>
+            <td class="py-2 align-top text-slate-400 whitespace-pre-wrap break-words">${stringifyExample(v)}</td>
           `;
           schemaBody.appendChild(tr);
         }
@@ -148,10 +158,16 @@
       document.getElementById('import').onclick = importModel;
       document.getElementById('latest').onclick = async () => {
         const d = await (await fetch('/api/model')).json();
-        if (d.ok) render(d.uid);
+        if (d.ok) {
+          render(d.uid);
+          try {
+            const j = await (await fetch('/api/models/' + encodeURIComponent(d.uid))).json();
+            if (j.ok) { showDoc(j.model); buildSchema(j.model); }
+          } catch {}
+        }
       };
 
-      list();
+list();
     </script>
   </body>
  </html>
