@@ -16,6 +16,22 @@ app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.static("public"));
 
+// Permissions-Policy: allow only the capabilities needed by the viewer
+app.use((req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    [
+      "accelerometer=(self)",
+      "gyroscope=(self)",
+      "magnetometer=(self)",
+      "xr-spatial-tracking=(self)",
+      "fullscreen=(self)",
+      "autoplay=(self)",
+    ].join(", ")
+  );
+  next();
+});
+
 const ModelSchema = new mongoose.Schema(
   {
     uid: { type: String, unique: true, required: true },

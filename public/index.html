@@ -1,19 +1,157 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Viewer+Mongo</title>
-<script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script></head>
-<body>
-<input id="uid" placeholder="UID" size="40"><button id="import">匯入</button>
-<button id="latest">載入最新</button><div id="status"></div>
-<table id="list" border="1" cellpadding="6"></table>
-<iframe id="viewer" width="800" height="600" allow="autoplay; fullscreen; xr-spatial-tracking"></iframe>
-<script>
-function setStatus(s){document.getElementById('status').textContent=s;}
-async function importModel(){const uid=document.getElementById('uid').value.trim(); if(!uid) return;
-  const r=await fetch('/api/import/'+uid,{method:'POST'}); setStatus('import '+uid+' => '+r.status); await list(); await render(uid);}
-async function list(){const d=await (await fetch('/api/models')).json(); const t=document.getElementById('list'); t.innerHTML='<tr><th>UID</th><th>Name</th><th>Author</th></tr>';
-  for(const m of d.models){ const tr=document.createElement('tr'); tr.innerHTML=`<td><a href="#" data-uid="${m.uid}">${m.uid}</a></td><td>${m.name||''}</td><td>${m.author||''}</td>`;
-    tr.querySelector('a').onclick=(e)=>{e.preventDefault(); render(m.uid);}; t.appendChild(tr);}}
-async function render(uid){const iframe=document.getElementById('viewer'); iframe.src='about:blank'; const client=new Sketchfab(iframe); client.init(uid,{success(api){api.start();}});}
-document.getElementById('import').onclick=importModel;
-document.getElementById('latest').onclick=async()=>{const d=await (await fetch('/api/model')).json(); if(d.ok) render(d.uid);};
-list();
-</script></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Viewer + Mongo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
+  </head>
+  <body class="bg-slate-950 text-slate-100">
+    <header class="border-b border-slate-700 bg-slate-900/60">
+      <div class="max-w-7xl mx-auto p-4">
+        <h1 class="text-cyan-300 text-xl font-semibold">Sketchfab + Mongo Demo</h1>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4">
+      <section class="flex flex-col gap-3 md:flex-row md:items-center">
+        <input id="uid" placeholder="輸入 Sketchfab 模型 UID" size="40" class="flex-1 min-w-[260px] rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2 text-slate-100 placeholder-slate-500" />
+        <div class="flex gap-2">
+          <button id="import" class="px-3 py-2 rounded-md border border-slate-700 hover:border-cyan-300 hover:text-cyan-300">匯入</button>
+          <button id="latest" class="px-3 py-2 rounded-md border border-slate-700 hover:border-cyan-300 hover:text-cyan-300">載入最新</button>
+        </div>
+        <span id="status" class="text-slate-400 text-sm"></span>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-slate-300 text-base">模型列表</h2>
+            <span class="text-slate-400 text-sm">共 <b id="count">0</b> 筆</span>
+          </div>
+          <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+
+          <div class="mt-4 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+            <h2 class="text-slate-300 text-base mb-2">Mongo 欄位概覽</h2>
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm">
+                <thead>
+                  <tr class="text-slate-400">
+                    <th class="text-left font-medium py-2 pr-4">Field</th>
+                    <th class="text-left font-medium py-2 pr-4">Type</th>
+                    <th class="text-left font-medium py-2">Example</th>
+                  </tr>
+                </thead>
+                <tbody id="schema"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+          <iframe
+            id="viewer"
+            width="800"
+            height="600"
+            allow="autoplay; fullscreen; accelerometer; gyroscope; magnetometer; xr-spatial-tracking"
+          ></iframe>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      function setStatus(s){ document.getElementById('status').textContent = s; }
+
+      async function importModel(){
+        const uid = document.getElementById('uid').value.trim();
+        if (!uid) return;
+        const r = await fetch('/api/import/' + uid, { method: 'POST' });
+        setStatus('import ' + uid + ' => ' + r.status);
+        await list();
+        await render(uid);
+      }
+
+      function getType(v){
+        if (v === null) return 'null';
+        if (Array.isArray(v)) return 'array';
+        if (v && typeof v === 'object' && typeof v.$date !== 'undefined') return 'date';
+        if (v instanceof Date) return 'date';
+        return typeof v;
+      }
+
+      function stringifyExample(v){
+        try{
+          // handle ISODate from Mongo JSON if any
+          if (v && typeof v === 'object' && typeof v.$date !== 'undefined') return new Date(v.$date).toISOString();
+          const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+          return s.length > 100 ? s.slice(0,100) + '…' : s;
+        }catch{ return ''; }
+      }
+
+      async function list(){
+        const d = await (await fetch('/api/models')).json();
+        const grid = document.getElementById('grid');
+        const count = document.getElementById('count');
+        const schemaBody = document.getElementById('schema');
+        grid.innerHTML = '';
+        schemaBody.innerHTML = '';
+        count.textContent = Array.isArray(d.models) ? d.models.length : 0;
+        for (const m of d.models) {
+          const card = document.createElement('article');
+          card.className = 'rounded-lg border border-slate-700 p-3 bg-slate-900/40 hover:border-cyan-300 transition-colors';
+          const title = m.name || m.uid;
+          const author = m.author || '';
+          const updatedAt = m.updatedAt ? new Date(m.updatedAt).toLocaleString() : '';
+          card.innerHTML = `
+            <h3 class="text-slate-200 text-sm font-semibold truncate">${title}</h3>
+            <p class="text-slate-400 text-xs truncate">UID: <a href="#" data-uid="${m.uid}" class="underline decoration-dotted">${m.uid}</a></p>
+            <p class="text-slate-500 text-xs truncate">Author: ${author}</p>
+            <p class="text-slate-500 text-xs">Updated: ${updatedAt}</p>
+          `;
+          card.querySelector('a').onclick = (e) => { e.preventDefault(); render(m.uid); };
+          grid.appendChild(card);
+        }
+
+        // schema overview (top-level fields)
+        const typeMap = new Map();
+        const exampleMap = new Map();
+        for (const m of d.models || []){
+          for (const k of Object.keys(m)){
+            const v = m[k];
+            const t = getType(v);
+            if (!typeMap.has(k)) typeMap.set(k, new Set());
+            typeMap.get(k).add(t);
+            if (!exampleMap.has(k) && v !== undefined) exampleMap.set(k, v);
+          }
+        }
+        const sortedKeys = Array.from(typeMap.keys()).sort();
+        for (const k of sortedKeys){
+          const types = Array.from(typeMap.get(k)).join(' | ');
+          const ex = stringifyExample(exampleMap.get(k));
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="py-2 pr-4 align-top text-slate-200">${k}</td>
+            <td class="py-2 pr-4 align-top text-cyan-300">${types}</td>
+            <td class="py-2 align-top text-slate-400 whitespace-pre-wrap break-words">${ex}</td>
+          `;
+          schemaBody.appendChild(tr);
+        }
+      }
+
+      async function render(uid){
+        const iframe = document.getElementById('viewer');
+        iframe.src = 'about:blank';
+        const client = new Sketchfab(iframe);
+        client.init(uid, { success(api){ api.start(); } });
+      }
+
+      document.getElementById('import').onclick = importModel;
+      document.getElementById('latest').onclick = async () => {
+        const d = await (await fetch('/api/model')).json();
+        if (d.ok) render(d.uid);
+      };
+
+      list();
+    </script>
+  </body>
+ </html>
