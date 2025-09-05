@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Viewer+Mongo</title>
+<script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script></head>
+<body>
+<input id="uid" placeholder="UID" size="40"><button id="import">匯入</button>
+<button id="latest">載入最新</button><div id="status"></div>
+<table id="list" border="1" cellpadding="6"></table>
+<iframe id="viewer" width="800" height="600" allow="autoplay; fullscreen; xr-spatial-tracking"></iframe>
+<script>
+function setStatus(s){document.getElementById('status').textContent=s;}
+async function importModel(){const uid=document.getElementById('uid').value.trim(); if(!uid) return;
+  const r=await fetch('/api/import/'+uid,{method:'POST'}); setStatus('import '+uid+' => '+r.status); await list(); await render(uid);}
+async function list(){const d=await (await fetch('/api/models')).json(); const t=document.getElementById('list'); t.innerHTML='<tr><th>UID</th><th>Name</th><th>Author</th></tr>';
+  for(const m of d.models){ const tr=document.createElement('tr'); tr.innerHTML=`<td><a href="#" data-uid="${m.uid}">${m.uid}</a></td><td>${m.name||''}</td><td>${m.author||''}</td>`;
+    tr.querySelector('a').onclick=(e)=>{e.preventDefault(); render(m.uid);}; t.appendChild(tr);}}
+async function render(uid){const iframe=document.getElementById('viewer'); iframe.src='about:blank'; const client=new Sketchfab(iframe); client.init(uid,{success(api){api.start();}});}
+document.getElementById('import').onclick=importModel;
+document.getElementById('latest').onclick=async()=>{const d=await (await fetch('/api/model')).json(); if(d.ok) render(d.uid);};
+list();
+</script></body></html>
