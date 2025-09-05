@@ -93,4 +93,11 @@ app.get("/api/model", async (req, res) => {
   res.json({ ok: true, uid: doc.uid });
 });
 
+app.delete("/api/models/:uid", async (req, res) => {
+  const { uid } = req.params;
+  const r = await ModelDoc.deleteOne({ uid });
+  if (r.deletedCount === 0) return res.status(404).json({ ok: false });
+  res.json({ ok: true, deleted: r.deletedCount });
+});
+
 app.listen(PORT, () => console.log("http://localhost:" + PORT));

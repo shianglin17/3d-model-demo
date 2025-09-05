@@ -16,6 +16,7 @@ docker compose up --build
 - `POST /api/import/:uid`：從 Sketchfab 取得模型並 upsert 到 `modeldocs`。
 - `GET /api/models`：取得全部模型（依更新時間降冪）。
 - `GET /api/models/:uid`：取得指定 UID 的模型。
+- `DELETE /api/models/:uid`：刪除指定模型
 - `GET /api/model`：取得最新一筆模型的 UID。
 
 範例：

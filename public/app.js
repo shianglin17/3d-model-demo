@@ -92,11 +92,12 @@ async function list(){
 
   for (const m of d.models) {
     const card = document.createElement('article');
-    card.className = 'rounded-lg border border-slate-700 p-3 bg-slate-900/40 hover:border-cyan-300 transition-colors cursor-pointer';
+    card.className = 'relative rounded-lg border border-slate-700 p-3 bg-slate-900/40 hover:border-cyan-300 transition-colors cursor-pointer';
     const title = m.name || m.uid;
     const author = m.author || '';
     const updatedAt = m.updatedAt ? new Date(m.updatedAt).toLocaleString() : '';
     card.innerHTML = `
+      <button title="刪除" class="delete absolute right-2 top-2 text-slate-400 hover:text-rose-400">✕</button>
       <h3 class="text-slate-200 text-sm font-semibold truncate">${title}</h3>
       <p class="text-slate-400 text-xs truncate">UID: ${m.uid}</p>
       <p class="text-slate-500 text-xs truncate">Author: ${author}</p>
@@ -106,6 +107,31 @@ async function list(){
       render(m.uid);
       showDoc(m);
       buildSchemaTree(schemaTree, m);
+    };
+    const delBtn = card.querySelector('.delete');
+    delBtn.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`確定刪除？\n${title}\nUID: ${m.uid}`)) return;
+      const prevHTML = card.innerHTML;
+      card.style.opacity = '0.6';
+      try{
+        const r = await fetch('/api/models/' + encodeURIComponent(m.uid), { method:'DELETE' });
+        if (!r.ok) throw new Error('刪除失敗');
+        card.remove();
+        // 若刪的是當前顯示的模型，清空 viewer 與欄位
+        const doc = document.getElementById('doc');
+        if (doc.textContent.includes(m.uid)){
+          document.getElementById('viewer').src = 'about:blank';
+          doc.textContent='';
+          schemaTree.innerHTML='';
+        }
+        // 更新計數
+        const countEl = document.getElementById('count');
+        countEl.textContent = String(Math.max(0, Number(countEl.textContent) - 1));
+      }catch(err){
+        alert(err.message || '刪除失敗');
+        card.innerHTML = prevHTML;
+      }
     };
     grid.appendChild(card);
   }
