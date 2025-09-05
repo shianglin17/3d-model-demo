@@ -21,15 +21,10 @@ function rateLimitMiddleware(req, res, next) {
   const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || '127.0.0.1';
   const referer = req.get('Referer') || '';
 
-  console.log(`Rate limit check - IP: ${clientIP}, Referer: ${referer}, Allowed Domain: ${ALLOWED_DOMAIN}`);
-
   // Check if request is from allowed domain
   if (referer.startsWith(ALLOWED_DOMAIN)) {
-    console.log('Request from allowed domain - allowing');
     return next(); // Allow requests from allowed domain
   }
-
-  console.log('Request from external source - applying rate limit');
 
   // Get current rate limit data for this IP
   const now = Date.now();
@@ -108,7 +103,6 @@ function cleanupExpiredEntries() {
     }
   }
 
-  console.log(`Cleaned up ${cleaned} expired rate limit entries`);
   return cleaned;
 }
 

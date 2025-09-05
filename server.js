@@ -3,7 +3,6 @@ import cors from "cors";
 import morgan from "morgan";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import fetch from "node-fetch";
 import { rateLimitMiddleware, getRateLimitStats, cleanupExpiredEntries } from "./rate-limit.js";
 
 dotenv.config();
@@ -48,9 +47,11 @@ const ModelDoc = mongoose.model("ModelDoc", ModelSchema);
 
 await mongoose.connect(MONGODB_URI);
 
-async function fetchSketchfabModel(uid) {
-  const r = await fetch(`https://api.sketchfab.com/v3/models/${uid}`);
-  if (!r.ok) throw new Error("fetch failed");
+// 使用 search.js 中的函數
+
+async function getSketchfabCategories() {
+  const r = await fetch('https://api.sketchfab.com/v3/categories');
+  if (!r.ok) throw new Error("Failed to fetch categories");
   return r.json();
 }
 
@@ -60,16 +61,21 @@ app.use("/api", rateLimitMiddleware);
 app.post("/api/import/:uid", async (req, res) => {
   try {
     const uid = req.params.uid;
-    const d = await fetchSketchfabModel(uid);
+    // 從請求體獲取模型數據（前端已從 Sketchfab API 獲取）
+    const modelData = req.body;
+
+    if (!modelData || !modelData.name) {
+      return res.status(400).json({ ok: false, error: '缺少模型數據' });
+    }
 
     const doc = await ModelDoc.findOneAndUpdate(
       { uid },
       {
         uid,
-        name: d.name || uid,
-        author: d.user?.displayName || d.user?.username || "",
-        thumbnails: d.thumbnails || {},
-        raw: d,
+        name: modelData.name || uid,
+        author: modelData.user?.displayName || modelData.user?.username || "",
+        thumbnails: modelData.thumbnails || {},
+        raw: modelData,
       },
       { upsert: true, new: true }
     );

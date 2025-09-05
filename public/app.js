@@ -148,18 +148,48 @@ async function list(){
 async function importModel(){
   const uid = document.getElementById('uid').value.trim();
   if (!uid) return;
-  const r = await fetch('/api/import/' + uid, { method: 'POST' });
-  setStatus('import ' + uid + ' => ' + r.status);
-  await list();
+
   try {
-    const j = await (await fetch('/api/models/' + encodeURIComponent(uid))).json();
-    if (j.ok) {
-      const schemaTree = document.getElementById('schemaTree');
-      render(uid);
-      showDoc(j.model);
-      buildSchemaTree(schemaTree, j.model);
+    setStatus(`獲取模型數據 ${uid}...`);
+
+    // 先從 Sketchfab API 獲取模型數據
+    const sketchfabResponse = await fetch(`https://api.sketchfab.com/v3/models/${uid}`);
+    if (!sketchfabResponse.ok) {
+      throw new Error(`獲取模型失敗: ${sketchfabResponse.status}`);
     }
-  } catch {}
+
+    const modelData = await sketchfabResponse.json();
+    setStatus(`保存模型 ${uid}...`);
+
+    // 發送到後端保存
+    const importResponse = await fetch('/api/import/' + uid, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(modelData)
+    });
+
+    if (importResponse.ok) {
+      setStatus('成功匯入 ' + uid);
+      await list();
+
+      try {
+        const j = await (await fetch('/api/models/' + encodeURIComponent(uid))).json();
+        if (j.ok) {
+          const schemaTree = document.getElementById('schemaTree');
+          render(uid);
+          showDoc(j.model);
+          buildSchemaTree(schemaTree, j.model);
+        }
+      } catch {}
+    } else {
+      const errorData = await importResponse.json();
+      throw new Error(errorData.error || `匯入失敗: ${importResponse.status}`);
+    }
+  } catch (error) {
+    setStatus('匯入錯誤: ' + error.message);
+  }
 }
 
 document.getElementById('import').onclick = importModel;
@@ -175,6 +205,165 @@ document.getElementById('latest').onclick = async () => {
         buildSchemaTree(schemaTree, j.model);
       }
     } catch {}
+  }
+};
+
+// 前端直接搜索 Sketchfab API
+async function searchModels(query) {
+  try {
+    const params = new URLSearchParams({
+      q: query.trim(),
+      type: 'models',
+      downloadable: 'true',
+      sort_by: '-viewCount', // 觀看最多的模型
+      count: '5', // 只返回5個結果
+      offset: '0'
+    });
+
+    const response = await fetch(`https://api.sketchfab.com/v3/search?${params.toString()}`);
+    const data = await response.json();
+
+    if (response.ok) {
+      displaySearchResults(data.results || []);
+      document.getElementById('searchCount').textContent = data.total || 0;
+      return data;
+    } else {
+      throw new Error(`搜索失敗: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('搜索失敗:', error);
+    setStatus('搜索失敗: ' + error.message);
+    return null;
+  }
+}
+
+// 顯示搜索結果
+function displaySearchResults(results) {
+  const grid = document.getElementById('searchGrid');
+  const resultsDiv = document.getElementById('searchResults');
+
+  grid.innerHTML = '';
+
+  if (results && results.length > 0) {
+    results.forEach(model => {
+      const card = createSearchModelCard(model);
+      grid.appendChild(card);
+    });
+    resultsDiv.classList.remove('hidden');
+  } else {
+    grid.innerHTML = '<p class="text-slate-400 text-center py-4">沒有找到符合的模型</p>';
+    resultsDiv.classList.remove('hidden');
+  }
+}
+
+// 創建搜索結果模型卡片
+function createSearchModelCard(model) {
+  const card = document.createElement('article');
+  card.className = 'rounded-lg border border-slate-700 p-3 bg-slate-900/40 hover:border-cyan-300 transition-colors cursor-pointer';
+
+  const title = model.name || '未命名模型';
+  const author = model.user?.displayName || model.user?.username || '未知作者';
+  const thumbnail = model.thumbnails?.images?.[0]?.url || '';
+  const viewCount = model.viewCount || 0;
+
+  card.innerHTML = `
+    ${thumbnail ? `<img src="${thumbnail}" alt="${title}" class="w-full h-24 object-cover rounded-md mb-2">` : ''}
+    <h3 class="text-slate-200 text-sm font-semibold truncate">${title}</h3>
+    <p class="text-slate-400 text-xs truncate">作者: ${author}</p>
+    <p class="text-slate-500 text-xs">👁 ${viewCount} 次瀏覽</p>
+  `;
+
+  card.onclick = () => {
+    importAndShowModel(model.uid);
+  };
+
+  return card;
+}
+
+// 匯入並顯示模型
+async function importAndShowModel(uid) {
+  try {
+    setStatus(`獲取模型數據 ${uid}...`);
+
+    // 先從 Sketchfab API 獲取模型數據
+    const sketchfabResponse = await fetch(`https://api.sketchfab.com/v3/models/${uid}`);
+    if (!sketchfabResponse.ok) {
+      throw new Error(`獲取模型失敗: ${sketchfabResponse.status}`);
+    }
+
+    const modelData = await sketchfabResponse.json();
+    setStatus(`保存模型 ${uid}...`);
+
+    // 發送到後端保存
+    const importResponse = await fetch(`/api/import/${uid}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(modelData)
+    });
+
+    if (importResponse.ok) {
+      setStatus(`成功匯入模型 ${uid}`);
+      await list(); // 重新載入本地模型列表
+
+      // 顯示在 viewer 中
+      const localModelResponse = await fetch(`/api/models/${encodeURIComponent(uid)}`);
+      const localModelData = await localModelResponse.json();
+
+      if (localModelData.ok) {
+        const schemaTree = document.getElementById('schemaTree');
+        render(uid);
+        showDoc(localModelData.model);
+        buildSchemaTree(schemaTree, localModelData.model);
+      }
+    } else {
+      const errorData = await importResponse.json();
+      throw new Error(errorData.error || `匯入失敗: ${importResponse.status}`);
+    }
+  } catch (error) {
+    setStatus(`匯入錯誤: ${error.message}`);
+  }
+}
+
+// 事件監聽器
+document.getElementById('searchBtn').onclick = async () => {
+  const query = document.getElementById('searchQuery').value.trim();
+
+  if (!query) {
+    setStatus('請輸入搜索關鍵字');
+    return;
+  }
+
+  setStatus('搜索中...');
+  await searchModels(query);
+  setStatus('搜索完成');
+};
+
+// 允許按 Enter 鍵搜索
+document.getElementById('searchQuery').onkeypress = (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('searchBtn').click();
+  }
+};
+
+// 搜索區域折疊功能
+let isSearchCollapsed = false;
+document.getElementById('toggleSearch').onclick = () => {
+  const searchContent = document.getElementById('searchContent');
+  const toggleIcon = document.getElementById('toggleIcon');
+  const toggleBtn = document.getElementById('toggleSearch');
+
+  isSearchCollapsed = !isSearchCollapsed;
+
+  if (isSearchCollapsed) {
+    searchContent.style.display = 'none';
+    toggleIcon.textContent = '▶';
+    toggleBtn.innerHTML = '<span id="toggleIcon">▶</span> 展開';
+  } else {
+    searchContent.style.display = 'block';
+    toggleIcon.textContent = '▼';
+    toggleBtn.innerHTML = '<span id="toggleIcon">▼</span> 收起';
   }
 };
 
