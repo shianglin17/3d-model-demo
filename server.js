@@ -4,6 +4,7 @@ import morgan from "morgan";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import { rateLimitMiddleware, getRateLimitStats, cleanupExpiredEntries } from "./rate-limit.js";
 
 dotenv.config();
 
@@ -53,6 +54,9 @@ async function fetchSketchfabModel(uid) {
   return r.json();
 }
 
+// Apply rate limiting to all API routes
+app.use("/api", rateLimitMiddleware);
+
 app.post("/api/import/:uid", async (req, res) => {
   try {
     const uid = req.params.uid;
@@ -99,5 +103,20 @@ app.delete("/api/models/:uid", async (req, res) => {
   if (r.deletedCount === 0) return res.status(404).json({ ok: false });
   res.json({ ok: true, deleted: r.deletedCount });
 });
+
+// Rate limit monitoring endpoint
+app.get("/api/rate-limit-stats", async (req, res) => {
+  try {
+    const stats = getRateLimitStats();
+    res.json({ ok: true, stats });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Cleanup expired rate limit entries every hour
+setInterval(() => {
+  cleanupExpiredEntries();
+}, 60 * 60 * 1000); // Run every hour
 
 app.listen(PORT, () => console.log("http://localhost:" + PORT));
